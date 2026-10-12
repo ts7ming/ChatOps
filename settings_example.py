@@ -11,7 +11,10 @@ DATABASES = {
     # 例: 钉钉发送 "sql 查询 BI select 1"
 }
 
-DINGTALK_ALLOWED_USERS = []
+# 钉钉机器人白名单改用项目根目录下的 dingtalk_allowed_users.txt 文件管理，
+# 每行一个 senderId (= staffId)，# 开头为注释，文件可热加载无需重启。
+# 如需自定义路径，在 settings.py 中设置:
+# DINGTALK_ALLOWED_USERS_FILE = "/path/to/your/whitelist.txt"
 
 
 DS_BASE_URL = "http://your-dolphinscheduler-host:12345/dolphinscheduler"
