@@ -12,6 +12,9 @@ _HARD_RESET_DB = 'DS'
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DS_EXCLUDE_FILE = os.path.join(_PROJECT_ROOT, "ds_hard_reset_exclude.txt")
 
+# 查询时默认展示的实例/任务条数
+_DEFAULT_DISPLAY = 5
+
 
 class DolphinHelper(DolphinBase):
     def __init__(self, base_url, ds_token=None, token=None):
