@@ -8,3 +8,4 @@ __pycache__/
 dingtalk_allowed_users.txt
 dingtalk_allowed_users.txt.names
 ds_hard_reset_exclude.txt
+dingtalk_shortcuts.txt

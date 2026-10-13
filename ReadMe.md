@@ -24,6 +24,7 @@ ChatOps/
 ├── settings_example.py              # 配置模板（复制为 settings.py 后使用）
 ├── test_bot.py
 ├── dingtalk_allowed_users.txt.example # 白名单模板（复制为 dingtalk_allowed_users.txt）
+├── dingtalk_shortcuts.txt.example     # 快捷指令模板（复制为 dingtalk_shortcuts.txt）
 ├── ds_hard_reset_exclude.txt.example  # ds 重置 SQL 模板（复制为 ds_hard_reset_exclude.txt）
 ├── .gitignore                       # 真实配置 txt 不入库
 ├── dingtalk/
@@ -55,6 +56,7 @@ pip install dingtalk-stream pyqueen aiohttp
 ```bash
 cp settings_example.py settings.py
 cp dingtalk_allowed_users.txt.example dingtalk_allowed_users.txt   # 可选，不复制则放行所有人
+cp dingtalk_shortcuts.txt.example dingtalk_shortcuts.txt           # 可选，启用快捷指令
 cp ds_hard_reset_exclude.txt.example ds_hard_reset_exclude.txt     # 可选，使用 ds 重置 时必须
 ```
 
@@ -164,6 +166,39 @@ STAFF9876543210  # 李四
 - 工具收集的"id → 昵称"映射存放在同目录的 `dingtalk_allowed_users.txt.names`（旁路文件，不影响鉴权）
 
 获取 `senderId` 的方法见下一节[《收集用户 ID》](#收集用户-id)。
+
+---
+
+## 快捷指令
+
+在项目根的 `dingtalk_shortcuts.txt`（模板见 `.example`）中可定义常用指令的别名。每行一条 `名称:命令`：
+
+```
+# 钉钉快捷指令
+快捷1:ds 查询 BI
+快捷2:st 查询
+q1:ds 查询 etl-config cdc_sync
+reset:ds 重置
+```
+
+**规则：**
+
+- 机器人收到以"名称"开头的消息时，**整行替换**为"命令"再走常规路由
+- 替换只发生一次，不递归（避免 A→B→A 循环）
+- 名称禁止含空格或制表符；命令部分原样作为新消息
+- 文件不存在 → 视为未启用；存在但为空 → 同样不展开
+- 修改保存后按文件 mtime 自动重载，**无需重启**
+
+**示例：**
+
+| 用户发送     | 实际执行命令    |
+|--------------|-----------------|
+| `快捷1`      | `ds 查询 BI`    |
+| `q1`         | `ds 查询 etl-config cdc_sync` |
+| `reset`      | `ds 重置`       |
+| `快捷1 foo`  | `ds 查询 BI`    (后缀被丢弃) |
+
+> 钉钉里直接用 `快捷1` 代替 `ds 查询 BI`，每天少打几个字。
 
 ---
 

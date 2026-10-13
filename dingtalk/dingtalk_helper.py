@@ -9,6 +9,9 @@ from dingtalk_stream import AckMessage
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ALLOWED_USERS_FILE = os.path.join(_PROJECT_ROOT, "dingtalk_allowed_users.txt")
 
+# 快捷指令文件：项目根目录下的 dingtalk_shortcuts.txt (固定路径, 可选)
+SHORTCUTS_FILE = os.path.join(_PROJECT_ROOT, "dingtalk_shortcuts.txt")
+
 
 class DingtalkHelper(dingtalk_stream.ChatbotHandler):
     """
@@ -16,6 +19,9 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
 
     白名单文件 dingtalk_allowed_users.txt 位于项目根，每行一个 senderId (= staffId)，
     以 # 开头的行为注释。文件被修改后无需重启服务，下次消息进来会自动重读（按 mtime 缓存）。
+
+    快捷指令文件 dingtalk_shortcuts.txt (可选)，每行 "名称:命令"，机器人收到以名称
+    开头的消息时会整行替换为对应命令后再路由。修改保存后自动重载。
     """
 
     def __init__(self, handler_map):
@@ -24,6 +30,8 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
         # 缓存文件 mtime + 解析结果，避免每条消息都读盘
         self._cached_mtime = -1.0
         self._cached_users = frozenset()
+        self._shortcut_mtime = -1.0
+        self._shortcuts = {}
 
     # 当白名单文件不存在时，_load_allowed_users 返回这个 sentinel，
     # 表示"放行所有消息"。文件存在但解析后为空则仍返回空 frozenset（拒绝所有）。
@@ -72,6 +80,59 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
         self._cached_users = frozenset(users)
         return self._cached_users
 
+    def _load_shortcuts(self):
+        """
+        读取快捷指令文件，按 mtime 缓存。
+        文件不存在 → 返回空 dict（不启用快捷指令）。
+        文件格式: 每行 "名称:命令"，'#' 开头为注释，空行跳过，名称禁止含空格。
+        """
+        try:
+            mtime = os.path.getmtime(SHORTCUTS_FILE)
+        except OSError:
+            self._shortcut_mtime = -1.0
+            self._shortcuts = {}
+            return self._shortcuts
+
+        if mtime == self._shortcut_mtime:
+            return self._shortcuts
+
+        shortcuts = {}
+        try:
+            with open(SHORTCUTS_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    raw = line.strip()
+                    if not raw or raw.startswith("#"):
+                        continue
+                    if ":" not in raw:
+                        continue
+                    name, _, value = raw.partition(":")
+                    name = name.strip()
+                    value = value.strip()
+                    # 名称禁止含空格 (否则无法用 "首 token 匹配" 的方式路由)
+                    if name and value and " " not in name and "\t" not in name:
+                        shortcuts[name] = value
+        except OSError:
+            pass
+
+        self._shortcut_mtime = mtime
+        self._shortcuts = shortcuts
+        return self._shortcuts
+
+    def _expand_shortcut(self, content):
+        """
+        若 content 的第一个 token 是快捷指令键，整行替换为对应的命令。
+        替换后只展开一次, 不递归 (避免 A→B→A 循环)。
+        """
+        parts = content.split(maxsplit=1)
+        if not parts:
+            return content
+        first = parts[0]
+        replacement = self._shortcuts.get(first)
+        if replacement:
+            self.logger.info(f"快捷指令 '{first}' 展开为: {replacement}")
+            return replacement
+        return content
+
     def _check_permission(self, callback):
         allowed = self._load_allowed_users()
         sender_id = "未知"
@@ -110,6 +171,9 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
         if self._check_permission(callback) is False:
             self.reply_text("仅接收授权用户指令", incoming_message)
             return AckMessage.STATUS_OK, 'OK'
+
+        # 快捷指令展开: 整行替换为文件中的命令 (不递归)
+        content = self._expand_shortcut(content)
 
         reply_text = ""
         try:
