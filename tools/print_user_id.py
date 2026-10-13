@@ -32,6 +32,7 @@ from dingtalk.dingtalk_helper import _resolve_allowed_users_file  # noqa: E402
 
 
 ALLOWED_USERS_FILE = _resolve_allowed_users_file()
+NAMES_FILE = ALLOWED_USERS_FILE + ".names"  # 旁路保存 id→昵称，仅供参考
 HEADER = (
     "# 钉钉机器人白名单\n"
     "# 每行一个 senderId (= staffId)，以 # 开头的行视为注释\n"
@@ -46,28 +47,48 @@ def setup_logger():
     )
 
 
+def _normalize_id(line):
+    """
+    从一行文本中提取出真正的 senderId。
+    兼容:
+        STAFF123
+        STAFF123  # 张三
+        张三(STAFF123)
+    """
+    raw = line.strip()
+    if not raw or raw.startswith("#"):
+        return None
+    raw = raw.split("#", 1)[0].strip()
+    if not raw:
+        return None
+    if "(" in raw and raw.endswith(")"):
+        raw = raw.rsplit("(", 1)[-1][:-1].strip()
+    return raw or None
+
+
 def _read_existing_ids(path):
     if not os.path.exists(path):
         return set()
     ids = set()
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            # 兼容 "昵称(senderId)" 旧格式
-            if "(" in line and line.endswith(")"):
-                line = line.rsplit("(", 1)[-1][:-1]
-            ids.add(line)
+            sid = _normalize_id(line)
+            if sid:
+                ids.add(sid)
     return ids
 
 
-def _append_id(path, sender_id, sender_nick):
+def _append_id(path, names_path, sender_id, sender_nick):
     if not os.path.exists(path):
         with open(path, "w", encoding="utf-8") as f:
             f.write(HEADER)
+    # 白名单文件只写裸 id，避免行内注释被当作 id 的一部分
     with open(path, "a", encoding="utf-8") as f:
-        f.write(f"{sender_id}  # {sender_nick}\n")
+        f.write(f"{sender_id}\n")
+    # 昵称单独存到 .names 文件（id\t昵称），仅作参考不影响鉴权
+    if sender_nick:
+        with open(names_path, "a", encoding="utf-8") as f:
+            f.write(f"{sender_id}\t{sender_nick}\n")
 
 
 class UserIdCollector(dingtalk_stream.ChatbotHandler):
@@ -98,10 +119,11 @@ class UserIdCollector(dingtalk_stream.ChatbotHandler):
             print("-" * 60, flush=True)
             if sender_id not in self.seen:
                 self.seen.add(sender_id)
-                _append_id(ALLOWED_USERS_FILE, sender_id, sender_nick)
+                _append_id(ALLOWED_USERS_FILE, NAMES_FILE, sender_id, sender_nick)
                 print(f"[新] 昵称: {sender_nick}", flush=True)
                 print(f"     id  : {sender_id}", flush=True)
                 print(f"     已追加 → {ALLOWED_USERS_FILE}", flush=True)
+                print(f"     昵称记录 → {NAMES_FILE}", flush=True)
             else:
                 print(f"[已知] {sender_nick}({sender_id})  消息: {text}", flush=True)
         except Exception as e:

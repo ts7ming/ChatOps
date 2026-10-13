@@ -126,6 +126,13 @@ sqlbot 执行 etl-config update t set flag=1 where id=123
 ```
 # 钉钉机器人白名单
 # 每行一个 senderId (= staffId)，以 # 开头的行视为注释
+STAFF1234567890
+STAFF9876543210
+```
+
+也支持行内注释（`#` 之前为 id）：
+
+```
 STAFF1234567890  # 张三
 STAFF9876543210  # 李四
 ```
@@ -133,6 +140,7 @@ STAFF9876543210  # 李四
 - 文件不存在或为空 → 拒绝所有（安全默认）
 - 修改保存后机器人按文件 mtime 自动重载，**无需重启服务**
 - 自定义路径：在 `settings.py` 中设置 `DINGTALK_ALLOWED_USERS_FILE = "/path/to/whitelist.txt"`
+- 工具收集的"id → 昵称"映射存放在同目录的 `dingtalk_allowed_users.txt.names`（旁路文件，不影响鉴权）
 
 获取 `senderId` 的方法见下一节[《收集用户 ID》](#收集用户-id)。
 
@@ -195,14 +203,14 @@ python tools/print_user_id.py
 [已知] 李四(STAFF9876543210)  消息: hi
 ```
 
-- 新用户首次出现会**自动追加到 `dingtalk_allowed_users.txt`**，自动去重
+- 新用户首次出现会**自动追加到 `dingtalk_allowed_users.txt`**（只写裸 `senderId`，不加行内注释，避免 # 后内容被当 id），自动去重
+- 昵称映射写入旁路文件 `dingtalk_allowed_users.txt.names`（`id<TAB>昵称`），不影响鉴权
 - 让所有目标用户依次给机器人发消息，最后 `dingtalk_allowed_users.txt` 形如：
 
   ```
   # 钉钉机器人白名单
-  # 每行一个 senderId (= staffId)，以 # 开头的行视为注释
-  STAFF1234567890  # 张三
-  STAFF9876543210  # 李四
+  STAFF1234567890
+  STAFF9876543210
   ```
 
 - 工具写入后，机器人下次消息自动按 mtime 重载，**无需重启**

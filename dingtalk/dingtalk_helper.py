@@ -62,10 +62,19 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
         try:
             with open(self.allowed_users_file, "r", encoding="utf-8") as f:
                 for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
+                    raw = line.strip()
+                    if not raw or raw.startswith("#"):
                         continue
-                    users.add(line)
+                    # 兼容写法:
+                    #   "STAFF123"               → 整行作为 id
+                    #   "STAFF123  # 张三"       → 截到第一个 # 前
+                    #   "张三(STAFF123)"         → 提取括号内的 id
+                    #   "张三(STAFF123)  # 备注" → 先去注释再取括号
+                    sender_id = raw.split("#", 1)[0].strip()
+                    if "(" in sender_id and sender_id.endswith(")"):
+                        sender_id = sender_id.rsplit("(", 1)[-1][:-1].strip()
+                    if sender_id:
+                        users.add(sender_id)
         except OSError:
             users = set()
 
