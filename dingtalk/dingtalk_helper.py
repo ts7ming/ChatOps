@@ -123,6 +123,7 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
         若 content 的第一个 token 是快捷指令键，整行替换为对应的命令。
         替换后只展开一次, 不递归 (避免 A→B→A 循环)。
         """
+        self._load_shortcuts()  # 确保按 mtime 热加载最新内容
         parts = content.split(maxsplit=1)
         if not parts:
             return content
