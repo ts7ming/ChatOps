@@ -12,7 +12,7 @@
 |---------|-----------------------------|----------------------------------------------------------------------|
 | `ds`    | `dolphinscheduler/`         | DolphinScheduler 工作流查询 / 触发 / 紧急强重置                       |
 | `st`    | `seatunnel/`                | SeaTunnel 作业查询、暂停、保存、恢复、取消                            |
-| `sqlbot`| `sqlbot/`                   | 在 `settings.DATABASES` 已配置的库上执行 SQL（查询/执行）              |
+| `sql`| `sqlbot/`                   | 在 `settings.DATABASES` 已配置的库上执行 SQL（查询/执行）              |
 
 ---
 
@@ -25,7 +25,7 @@ ChatOps/
 ├── test_bot.py
 ├── dingtalk_allowed_users.txt       # 钉钉机器人白名单（senderId 每行一个，热加载）
 ├── dingtalk/
-│   └── dingtalk_helper.py           # 消息入口：解析首词路由到具体模块，按 mtime 读白名单
+│   └── dingtalk_helper.py           # 消息入口：解析首词路由到具体模块，按读白名单
 ├── dolphinscheduler/
 │   ├── dolphin_base.py              # DS REST API 封装
 │   └── dolphin_helper.py            # ds 查询/执行 业务逻辑
@@ -57,7 +57,7 @@ cp settings_example.py settings.py
 按需修改 `settings.py`：
 
 - `DING_APP_ID` / `DING_APP_SECRET` — 钉钉机器人凭证
-- `DINGTALK_ALLOWED_USERS` — 允许使用机器人的 `senderId` 列表，留空 `[]` 表示关闭鉴权（不推荐生产使用）
+- `DINGTALK_ALLOWED_USERS` — 允许使用机器人的 `senderId` 列表，留空 `[]` 表示关闭鉴权
 - `DS_BASE_URL` / `DS_TOKEN` — DolphinScheduler
 - `SEATUNNEL_BASE_URL` / `SEATUNNEL_CLUSTER_NAME` / `SEATUNNEL_JOB_ID_MAP` — SeaTunnel
 - `DATABASES` — 供 `sqlbot` 与 `ds.scheduler_hard_reset` 使用的数据库配置（`conn_type` 支持 `mysql` / `pgsql` / `clickhouse` / `redis` 等 pyqueen 支持的类型）
@@ -185,12 +185,12 @@ python tools/print_user_id.py
 ```
 ============================================================
 监听中, 请让目标用户在钉钉里向机器人发送任意消息 (Ctrl+C 退出)
-白名单文件: d:/Project/ChatOps/dingtalk_allowed_users.txt
+白名单文件: /ChatOps/dingtalk_allowed_users.txt
 ============================================================
 ------------------------------------------------------------
 [新] 昵称: 张三
      id  : STAFF1234567890
-     已追加 → d:/Project/ChatOps/dingtalk_allowed_users.txt
+     已追加 → /ChatOps/dingtalk_allowed_users.txt
 ------------------------------------------------------------
 [已知] 李四(STAFF9876543210)  消息: hi
 ```
@@ -207,4 +207,4 @@ python tools/print_user_id.py
 
 - 工具写入后，机器人下次消息自动按 mtime 重载，**无需重启**
 
-> 小贴士：`senderId` 在钉钉里就是用户的 `staffId`，同一员工不会变；`senderNick` 只是昵称显示用，鉴权只看 `senderId`。
+> 注：`senderId` 在钉钉里就是用户的 `staffId`，同一员工不会变；`senderNick` 只是昵称显示用，鉴权只看 `senderId`。
