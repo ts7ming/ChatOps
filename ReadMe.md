@@ -24,8 +24,9 @@ ChatOps/
 ├── settings_example.py              # 配置模板（复制为 settings.py 后使用）
 ├── test_bot.py
 ├── dingtalk_allowed_users.txt       # 钉钉机器人白名单（senderId 每行一个，热加载）
+├── ds_hard_reset_exclude.txt        # ds 重置 执行的 SQL 模板（每行/分号分隔，热加载）
 ├── dingtalk/
-│   └── dingtalk_helper.py           # 消息入口：解析首词路由到具体模块，按读白名单
+│   └── dingtalk_helper.py           # 消息入口：解析首词路由到具体模块，按 mtime 读白名单
 ├── dolphinscheduler/
 │   ├── dolphin_base.py              # DS REST API 封装
 │   └── dolphin_helper.py            # ds 查询/执行 业务逻辑
@@ -58,9 +59,8 @@ cp settings_example.py settings.py
 
 - `DING_APP_ID` / `DING_APP_SECRET` — 钉钉机器人凭证
 - `DS_BASE_URL` / `DS_TOKEN` — DolphinScheduler
-- `SEATUNNEL_BASE_URL` / `SEATUNNEL_CLUSTER_NAME` / `SEATUNNEL_JOB_ID_MAP` — SeaTunnel
-- `DATABASES` — 供 `sqlbot` 与 `ds.scheduler_hard_reset` 使用的数据库配置（`conn_type` 支持 `mysql` / `pgsql` / `clickhouse` / `redis` 等 pyqueen 支持的类型）
-- `HARD_RESET_EXCLUDE_TASKS` / `HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS` — DolphinScheduler强重置时的排除名单
+- `SEATUNNEL_BASE_URL` / `SEATUNNEL_CLUSTER_NAME` — SeaTunnel
+- `DATABASES` — 供 `sqlbot` 与 `ds.scheduler_hard_reset` 使用的数据库配置（`conn_type` 支持 `mysql` / `pgsql` / `clickhouse` / `redis` 等 pyqueen 支持的类型）[pyqueen](https://pyqueen.readthedocs.io/zh-cn/latest/)
 
 ### 3. 启动
 
@@ -69,6 +69,7 @@ python main.py
 ```
 
 机器人启动后保持运行，钉钉里向机器人发送对应前缀的指令即可。
+可以自行封装为linux系统服务
 
 ---
 
@@ -87,34 +88,41 @@ ds 执行 <项目> <工作流>                # 触发工作流
 ds 重置                                # ⚠️ 危险！绕过调度器把所有非 SUCCESS/FAILURE 状态强标为 FAILURE
 ```
 
-> `ds 重置` 会在 settings.py 中配置 `HARD_RESET_EXCLUDE_TASKS` / `HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS` 排除名单后生效；DB 入口通过 `HARD_RESET_DB`（默认 `'etl-config'`）从 `settings.DATABASES` 读取。
+> `ds 重置` 会执行项目根目录 `ds_hard_reset_exclude.txt` 中预先写好的 SQL 模板
+
+```
+# ds 重置 SQL 模板
+UPDATE t_ds_task_instance SET state = 6 WHERE state NOT IN (6, 7);
+UPDATE t_ds_workflow_instance SET state = 6 WHERE state NOT IN (6, 7);
+```
+- 机器人会按 `;` 切分并逐条执行，单条失败会中断后续
 
 ### `st` — SeaTunnel
 
 ```
 st 查询                                # 运行中任务（最多 5 个，不足时用最近已完成补齐）
-st 暂停 <jobId或名称>                  # 保存 savepoint 后停止
-st 保存 <jobId或名称>                  # 触发 savepoint / checkpoint
-st 恢复 <jobId或名称>                  # 从 savepoint 恢复
-st 取消 <jobId或名称>                  # 直接停止，不保留 savepoint
+st 暂停 <jobId>                        # 保存 savepoint 后停止
+st 保存 <jobId>                        # 触发 savepoint / checkpoint
+st 恢复 <jobId>                        # 从 savepoint 恢复
+st 取消 <jobId>                        # 直接停止，不保留 savepoint
 ```
 
-> `jobId或名称` 可以是 `SEATUNNEL_JOB_ID_MAP` 中配置的友好名，例：`{"etl_order_sync": "1111111111111111111"}`。
+> `jobId` 即 SeaTunnel 集群返回的 jobId。
 
 ### `sqlbot` — 数据库执行
 
 ```
-sqlbot 查询 <db_name> <sql...>          # 走 ds.read_sql(sql)，DataFrame → Markdown 表格
-sqlbot 执行 <db_name> <sql...>          # 走 ds.exe_sql(sql, auto_commit=True)
+sql 查询 <db_name> <sql...>          # 走 ds.read_sql(sql)，DataFrame → Markdown 表格
+sql 执行 <db_name> <sql...>          # 走 ds.exe_sql(sql, auto_commit=True)
 ```
 
-`<db_name>` 必须是 `settings.DATABASES` 中已定义的 key，例如 `BI`、`etl-config`。查询结果最多展示 100 行。
+`<db_name>` 必须是 `settings.DATABASES` 中已定义的 key，例如 `BI`。查询结果最多展示 100 行。
 
 示例：
 
 ```
-sqlbot 查询 BI select id, name from users limit 10
-sqlbot 执行 etl-config update t set flag=1 where id=123
+sql 查询 BI select id, name from users limit 10
+sql 执行 DB1 update t set flag=1 where id=123
 ```
 
 ---
@@ -147,8 +155,7 @@ STAFF9876543210  # 李四
 | 文件存在但为空   | 拒绝所有消息                                   |
 | 文件存在且有 id  | 仅白名单内的 `senderId` 可触发                 |
 
-- 修改保存后机器人按文件 mtime 自动重载，**无需重启服务**
-- 自定义路径：在 `settings.py` 中设置 `DINGTALK_ALLOWED_USERS_FILE = "/path/to/whitelist.txt"`
+- 修改保存后机器人按文件, 自动重载，**无需重启服务**
 - 工具收集的"id → 昵称"映射存放在同目录的 `dingtalk_allowed_users.txt.names`（旁路文件，不影响鉴权）
 
 获取 `senderId` 的方法见下一节[《收集用户 ID》](#收集用户-id)。
@@ -157,8 +164,8 @@ STAFF9876543210  # 李四
 
 ## 注意事项
 
-- **`DolphinHelper.scheduler_hard_reset()`** 是危险操作，会绕过调度器状态机直写 MySQL，仅用于调度器卡死时的紧急恢复，请通过 `HARD_RESET_EXCLUDE_*` 排除关键任务/工作流。
-- **`sqlbot 执行`** 会真正写入数据库，请妥善控制 `DINGTALK_ALLOWED_USERS`。
+- **`DolphinHelper.scheduler_hard_reset()`** 是危险操作，会绕过调度器状态机直写 MySQL，仅用于调度器卡死时的紧急恢复。具体 SQL 在 `ds_hard_reset_exclude.txt` 中配置，**文件中的 SQL 会被原样执行，请严格控制写入权限**。
+- **`sqlbot 执行`** 会真正写入数据库，请妥善控制 `dingtalk_allowed_users.txt` 白名单。
 - 同步阻塞的 pyqueen 调用（`sqlbot`、`scheduler_hard_reset`）通过 `asyncio.to_thread` 包装，不会卡住事件循环。
 - SeaTunnel 模块使用 RESTful API v2：`/running-jobs`、`/finished-jobs/{state}`、`/job-info/{jobId}` 等；如部署的 SeaTunnel 版本路径不同，需要调整 `seatunnel_base.py`。
 

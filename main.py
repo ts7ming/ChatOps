@@ -25,7 +25,7 @@ sqlbot_helper = SqlbotHelper()
 handler_map = {
     'ds': ds_helper,
     'st': st_helper,
-    'sql': sqlbot_helper,
+    'sqlbot': sqlbot_helper,
 }
 
 

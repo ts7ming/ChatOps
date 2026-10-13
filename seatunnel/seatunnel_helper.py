@@ -3,7 +3,6 @@ from datetime import datetime
 from settings import (
     SEATUNNEL_BASE_URL,
     SEATUNNEL_CLUSTER_NAME,
-    SEATUNNEL_JOB_ID_MAP,
 )
 from seatunnel.seatunnel_base import SeatunnelBase
 
@@ -12,32 +11,20 @@ class SeatunnelHelper(SeatunnelBase):
     """
     钉钉指令格式: st <动作> [参数]
         st 查询
-        st 暂停 <jobId或名称>
-        st 保存 <jobId或名称>     (保存 checkpoint / 触发 savepoint)
-        st 恢复 <jobId或名称>     (从 savepoint 恢复)
-        st 取消 <jobId或名称>     (直接停止，不保留 savepoint)
+        st 暂停 <jobId>
+        st 保存 <jobId>           (保存 checkpoint / 触发 savepoint)
+        st 恢复 <jobId>           (从 savepoint 恢复)
+        st 取消 <jobId>           (直接停止，不保留 savepoint)
     """
 
     QUERY_LIMIT = 5
     FINISHED_STATES = ("FINISHED", "CANCELED", "FAILED", "UNKNOWABLE")
 
-    def __init__(
-        self,
-        base_url=None,
-        cluster_name=None,
-        job_id_map=None,
-    ):
+    def __init__(self, base_url=None, cluster_name=None):
         super().__init__(
             base_url=base_url or SEATUNNEL_BASE_URL,
             cluster_name=cluster_name if cluster_name is not None else SEATUNNEL_CLUSTER_NAME,
         )
-        self.job_id_map = job_id_map if job_id_map is not None else (SEATUNNEL_JOB_ID_MAP or {})
-
-    def _resolve_job_id(self, name_or_id):
-        """支持友好名 → jobId 映射，找不到则原样返回"""
-        if not name_or_id:
-            return name_or_id
-        return self.job_id_map.get(name_or_id, name_or_id)
 
     @staticmethod
     def _ok(result, success_msg):
@@ -162,10 +149,10 @@ class SeatunnelHelper(SeatunnelBase):
         return (
             "支持的指令：\n"
             "1. 查询\n"
-            "2. 暂停 [jobId或名称]\n"
-            "3. 保存 [jobId或名称]    (保存 checkpoint)\n"
-            "4. 恢复 [jobId或名称]\n"
-            "5. 取消 [jobId或名称]\n"
+            "2. 暂停 [jobId]\n"
+            "3. 保存 [jobId]    (保存 checkpoint)\n"
+            "4. 恢复 [jobId]\n"
+            "5. 取消 [jobId]\n"
         )
 
     async def process(self, cmd):
@@ -181,9 +168,9 @@ class SeatunnelHelper(SeatunnelBase):
                 return await self._list_jobs()
 
             if not args:
-                return f"格式错误。请使用: {action} [jobId或名称]"
+                return f"格式错误。请使用: {action} [jobId]"
 
-            job_id = self._resolve_job_id(args[0])
+            job_id = args[0]
 
             if action == '暂停':
                 return await self._pause(job_id)

@@ -1,105 +1,126 @@
 import asyncio
+import os
 
 from pyqueen import DataSource
-from settings import (
-    DATABASES,
-    HARD_RESET_EXCLUDE_TASKS,
-    HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS,
-)
-from dolphinscheduler.dolphin_base import DolphinBase, TASK_SEARCH_INSTANCE_LIMIT
+from settings import DATABASES
+from dolphinscheduler.dolphin_base import DolphinBase
 
-# 强重置使用的数据库 key（settings.DATABASES 中需存在），未配置则默认 'etl-config'
-try:
-    from settings import HARD_RESET_DB as _HARD_RESET_DB
-except Exception:
-    _HARD_RESET_DB = 'DS'
+# ds 重置使用的数据库 key（settings.DATABASES 中需存在）
+_HARD_RESET_DB = 'DS'
 
-
-# DS 任务/工作流状态码 (state 字段):
-#   0 SUBMITTED, 1 RUNNING, 2 READY_PAUSE, 3 PAUSE, 4 READY_STOP,
-#   5 STOP, 6 FAILURE, 7 SUCCESS, 8 NEED_FAULT_TOLERANCE, 9 KILL
-# scheduler_hard_reset 把"非 6/7"的状态直接 UPDATE 成 6, 绕过 STOP/KILL 流程。
-_DS_STATE_FAILURE = '6'
-_DS_STATE_SUCCESS = '7'
-
-
-_DEFAULT_DISPLAY = 5
+# ds 重置 SQL 文件 (txt)，固定项目根目录，按 mtime 热加载
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DS_EXCLUDE_FILE = os.path.join(_PROJECT_ROOT, "ds_hard_reset_exclude.txt")
 
 
 class DolphinHelper(DolphinBase):
     def __init__(self, base_url, ds_token=None, token=None):
         super().__init__(base_url=base_url, token=token if token is not None else ds_token)
 
+    @staticmethod
+    def _parse_sql_file(path):
+        """
+        读取 SQL 文件, 返回 (statements, file_mtime)。
+
+        文件格式:
+            - 每行一条 SQL, 用 ';' 分号作为结束符 (允许跨行)
+            - 整行注释: 以 '#' 开头的行整行跳过
+            - 段头标记: '[...]' 一行视为注释跳过
+            - 文件不存在 → 返回 ([], -1.0)
+        """
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return [], -1.0
+
+        statements = []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                buf = []
+                for line in f:
+                    raw = line.strip()
+                    if not raw or raw.startswith("#") or raw.startswith("["):
+                        continue
+                    # 去掉行内 # 注释 (无引号时)
+                    if "#" in raw and "'" not in raw and '"' not in raw:
+                        raw = raw.split("#", 1)[0].strip()
+                    if not raw:
+                        continue
+                    buf.append(raw)
+                    if raw.endswith(";"):
+                        stmt = " ".join(buf).rstrip(";").strip()
+                        if stmt:
+                            statements.append(stmt)
+                        buf = []
+                # 末尾无分号也保留
+                if buf:
+                    stmt = " ".join(buf).strip()
+                    if stmt:
+                        statements.append(stmt)
+        except OSError:
+            pass
+        return statements, mtime
+
     def scheduler_hard_reset(self):
         """
-        危险操作: 绕过调度器, 直写 MySQL 强重置所有运行中的任务和工作流。
+        危险操作: 读取 ds_hard_reset_exclude.txt 中的 SQL 逐条执行。
 
         适用场景: 调度器内部状态机卡死, STOP/KILL API 全部失效时的紧急恢复。
-        实现原理: 把"非 FAILURE/非 SUCCESS"的状态直接 UPDATE 为 FAILURE (state=6)。
 
-        排除名单由 settings.py 控制:
-          - HARD_RESET_EXCLUDE_TASKS           : 任务名不在此列表内才被重置
-          - HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS: 工作流名 NOT LIKE 任一模式才被重置
+        文件格式: 逐行写完整 SQL, 用 ';' 分号结束, '#' 开头的行为注释。
+        例:
+            UPDATE t_ds_task_instance SET state = 6 WHERE state NOT IN (6, 7);
 
-        :return: (task_count, wf_count) 受影响的行数
+        :return: [(sql_snippet, rowcount), ...] 每条 SQL 及其受影响行数
         """
         if _HARD_RESET_DB not in DATABASES:
             raise KeyError(
                 f"settings.DATABASES 中未配置 '{_HARD_RESET_DB}', "
                 f"请在 settings.py 添加该 key 或设置 HARD_RESET_DB = '已存在的key'"
             )
+
+        path = DS_EXCLUDE_FILE
+        statements, _ = self._parse_sql_file(path)
+        if not statements:
+            return []
+
         ds = DataSource(**DATABASES[_HARD_RESET_DB])
-
-        # 任务表: name NOT IN (...)
-        task_exclude = ""
-        if HARD_RESET_EXCLUDE_TASKS:
-            names = ", ".join(f"'{t}'" for t in HARD_RESET_EXCLUDE_TASKS)
-            task_exclude = f" AND `name` NOT IN ({names})"
-
-        # 工作流表: 多条 NOT LIKE 用 AND 连接
-        wf_exclude = ""
-        if HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS:
-            clauses = " AND ".join(
-                f"`name` NOT LIKE '{p}'" for p in HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS
-            )
-            wf_exclude = f" AND {clauses}"
-
-        sql_task = (
-            f"update dolphinscheduler.t_ds_task_instance set `state` = {_DS_STATE_FAILURE} "
-            f"WHERE `state` <> '{_DS_STATE_SUCCESS}' AND `state` <> '{_DS_STATE_FAILURE}'"
-            f"{task_exclude}"
-        )
-        sql_wf = (
-            f"update `dolphinscheduler`.`t_ds_workflow_instance` set state = {_DS_STATE_FAILURE} "
-            f"WHERE `state` <> '{_DS_STATE_SUCCESS}' AND `state` <> '{_DS_STATE_FAILURE}'"
-            f"{wf_exclude}"
-        )
-        task_count = ds.exe_sql(sql_task, auto_commit=True)
-        wf_count = ds.exe_sql(sql_wf, auto_commit=True)
+        results = []
         try:
-            ds.close_conn()
-        except Exception:
-            pass
-        return task_count, wf_count
+            for stmt in statements:
+                rowcount = ds.exe_sql(stmt, auto_commit=True)
+                snippet = (stmt[:60] + "...") if len(stmt) > 60 else stmt
+                results.append((snippet, rowcount))
+        finally:
+            try:
+                ds.close_conn()
+            except Exception:
+                pass
+        return results
 
     async def _hard_reset(self):
         """
-        异步包装的强重置操作, 避免阻塞事件循环。
-        排除名单在 settings.py 中配置:
-            HARD_RESET_EXCLUDE_TASKS / HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS
+        异步包装的 ds 重置操作, 避免阻塞事件循环。
+        SQL 通过项目根目录的 ds_hard_reset_exclude.txt 文件配置 (热加载)。
         """
         try:
-            task_count, wf_count = await asyncio.to_thread(self.scheduler_hard_reset)
+            results = await asyncio.to_thread(self.scheduler_hard_reset)
         except KeyError as e:
             return f"配置错误: {e}"
         except Exception as e:
             return f"重置失败: {e}"
-        return (
-            f"重置完成。已将所有非 SUCCESS/FAILURE 状态强制标记为 FAILURE。\n"
-            f"- 任务实例受影响: {task_count}\n"
-            f"- 工作流实例受影响: {wf_count}\n"
-            f"排除名单: HARD_RESET_EXCLUDE_TASKS / HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS"
-        )
+
+        if not results:
+            return (
+                f"ds 重置文件 {os.path.basename(DS_EXCLUDE_FILE)} 中没有可执行的 SQL。\n"
+                f"文件路径: {DS_EXCLUDE_FILE}"
+            )
+
+        lines = [f"ds 重置完成 (共执行 {len(results)} 条 SQL):"]
+        for snippet, rc in results:
+            lines.append(f"- {snippet} -> {rc} 行受影响")
+        lines.append(f"\n执行源文件: {DS_EXCLUDE_FILE}")
+        return "\n".join(lines)
 
     async def process(self, cmd):
         """
@@ -127,7 +148,7 @@ class DolphinHelper(DolphinBase):
             # ---------- 重置  ----------
             if action in ('重置', '重置调度', 'hard_reset', 'scheduler_hard_reset'):
                 if len(cmd) > 1:
-                    return "格式错误。重置命令不需要额外参数。\n排除名单请在 settings.py 配置 HARD_RESET_EXCLUDE_TASKS / HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS。"
+                    return "格式错误。重置命令不需要额外参数。\nSQL 模板请在项目根目录的 ds_hard_reset_exclude.txt 文件中配置。"
                 return await self._hard_reset()
 
             # ---------- 查询 ----------

@@ -190,7 +190,7 @@ class DolphinBase:
             if tasks_result.get("code") != 0:
                 continue
 
-            task_list = tasks_result.get("data", []).get('taskList')
+            task_list = (tasks_result.get("data") or {}).get('taskList') or []
             for task in task_list:
                 if task.get("name") == task_name:
                     return inst, task

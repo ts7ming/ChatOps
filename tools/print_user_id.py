@@ -28,10 +28,9 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import settings  # noqa: E402
-from dingtalk.dingtalk_helper import _resolve_allowed_users_file  # noqa: E402
+from dingtalk.dingtalk_helper import ALLOWED_USERS_FILE  # noqa: E402
 
 
-ALLOWED_USERS_FILE = _resolve_allowed_users_file()
 NAMES_FILE = ALLOWED_USERS_FILE + ".names"  # 旁路保存 id→昵称，仅供参考
 HEADER = (
     "# 钉钉机器人白名单\n"

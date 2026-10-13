@@ -5,21 +5,9 @@ import os
 import dingtalk_stream
 from dingtalk_stream import AckMessage
 
-# 默认白名单文件：项目根目录下的 dingtalk_allowed_users.txt
+# 白名单文件：项目根目录下的 dingtalk_allowed_users.txt (固定路径)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_ALLOWED_USERS_FILE = os.path.join(_PROJECT_ROOT, "dingtalk_allowed_users.txt")
-
-try:
-    from settings import DINGTALK_ALLOWED_USERS_FILE
-except Exception:
-    DINGTALK_ALLOWED_USERS_FILE = None
-
-
-def _resolve_allowed_users_file():
-    """优先用 settings.DINGTALK_ALLOWED_USERS_FILE，否则用项目根的默认文件"""
-    if DINGTALK_ALLOWED_USERS_FILE:
-        return os.path.abspath(DINGTALK_ALLOWED_USERS_FILE)
-    return DEFAULT_ALLOWED_USERS_FILE
+ALLOWED_USERS_FILE = os.path.join(_PROJECT_ROOT, "dingtalk_allowed_users.txt")
 
 
 class DingtalkHelper(dingtalk_stream.ChatbotHandler):
@@ -30,14 +18,9 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
     以 # 开头的行为注释。文件被修改后无需重启服务，下次消息进来会自动重读（按 mtime 缓存）。
     """
 
-    def __init__(self, handler_map, allowed_users_file=None):
+    def __init__(self, handler_map):
         super(dingtalk_stream.ChatbotHandler, self).__init__()
         self.handler_map = handler_map
-        self.allowed_users_file = (
-            os.path.abspath(allowed_users_file)
-            if allowed_users_file
-            else _resolve_allowed_users_file()
-        )
         # 缓存文件 mtime + 解析结果，避免每条消息都读盘
         self._cached_mtime = -1.0
         self._cached_users = frozenset()
@@ -55,7 +38,7 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
             self._MISSING    文件不存在，放行所有
         """
         try:
-            mtime = os.path.getmtime(self.allowed_users_file)
+            mtime = os.path.getmtime(ALLOWED_USERS_FILE)
         except OSError:
             # 文件不存在 → 放行所有
             self._cached_mtime = -1.0
@@ -67,7 +50,7 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
 
         users = set()
         try:
-            with open(self.allowed_users_file, "r", encoding="utf-8") as f:
+            with open(ALLOWED_USERS_FILE, "r", encoding="utf-8") as f:
                 for line in f:
                     raw = line.strip()
                     if not raw or raw.startswith("#"):
@@ -108,7 +91,7 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
         if allowed is self._MISSING:
             self.logger.warning(
                 f"用户: {sender_nick}({sender_id}) ---- 已授权 "
-                f"[白名单文件 {self.allowed_users_file} 不存在，放行所有]"
+                f"[白名单文件 {ALLOWED_USERS_FILE} 不存在，放行所有]"
             )
             return True
 
@@ -116,7 +99,7 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
         result = "已授权" if has_permission else "未授权"
         self.logger.warning(
             f"用户: {sender_nick}({sender_id}) ---- {result} "
-            f"[白名单文件: {self.allowed_users_file}, 共 {len(allowed)} 人]"
+            f"[白名单文件: {ALLOWED_USERS_FILE}, 共 {len(allowed)} 人]"
         )
         return has_permission
 
