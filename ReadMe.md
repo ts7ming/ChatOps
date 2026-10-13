@@ -57,11 +57,10 @@ cp settings_example.py settings.py
 按需修改 `settings.py`：
 
 - `DING_APP_ID` / `DING_APP_SECRET` — 钉钉机器人凭证
-- `DINGTALK_ALLOWED_USERS` — 允许使用机器人的 `senderId` 列表，留空 `[]` 表示关闭鉴权
 - `DS_BASE_URL` / `DS_TOKEN` — DolphinScheduler
 - `SEATUNNEL_BASE_URL` / `SEATUNNEL_CLUSTER_NAME` / `SEATUNNEL_JOB_ID_MAP` — SeaTunnel
 - `DATABASES` — 供 `sqlbot` 与 `ds.scheduler_hard_reset` 使用的数据库配置（`conn_type` 支持 `mysql` / `pgsql` / `clickhouse` / `redis` 等 pyqueen 支持的类型）
-- `HARD_RESET_EXCLUDE_TASKS` / `HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS` — 强重置时的排除名单
+- `HARD_RESET_EXCLUDE_TASKS` / `HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS` — DolphinScheduler强重置时的排除名单
 
 ### 3. 启动
 
@@ -85,7 +84,10 @@ ds 查询 <项目>                         # 同上
 ds 查询 <项目> <工作流>                # 该工作流最近实例的任务
 ds 查询 <项目> <工作流> <任务>         # 在最近若干实例中定位该任务
 ds 执行 <项目> <工作流>                # 触发工作流
+ds 重置                                # ⚠️ 危险！绕过调度器把所有非 SUCCESS/FAILURE 状态强标为 FAILURE
 ```
+
+> `ds 重置` 会在 settings.py 中配置 `HARD_RESET_EXCLUDE_TASKS` / `HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS` 排除名单后生效；DB 入口通过 `HARD_RESET_DB`（默认 `'etl-config'`）从 `settings.DATABASES` 读取。
 
 ### `st` — SeaTunnel
 
@@ -121,7 +123,7 @@ sqlbot 执行 etl-config update t set flag=1 where id=123
 
 `dingtalk/dingtalk_helper.py` 会检查消息发送者的 `senderId`（即 staffId）。
 
-白名单改为 **项目根目录下的 `dingtalk_allowed_users.txt` 文件**，每行一个 `senderId`：
+白名单改为 **项目根目录下的 `dingtalk_allowed_users.txt` 文件**（可选），每行一个 `senderId`：
 
 ```
 # 钉钉机器人白名单
@@ -137,7 +139,14 @@ STAFF1234567890  # 张三
 STAFF9876543210  # 李四
 ```
 
-- 文件不存在或为空 → 拒绝所有（安全默认）
+**鉴权规则：**
+
+| 文件状态         | 行为                                           |
+|------------------|------------------------------------------------|
+| 文件不存在       | 放行所有消息（默认）                           |
+| 文件存在但为空   | 拒绝所有消息                                   |
+| 文件存在且有 id  | 仅白名单内的 `senderId` 可触发                 |
+
 - 修改保存后机器人按文件 mtime 自动重载，**无需重启服务**
 - 自定义路径：在 `settings.py` 中设置 `DINGTALK_ALLOWED_USERS_FILE = "/path/to/whitelist.txt"`
 - 工具收集的"id → 昵称"映射存放在同目录的 `dingtalk_allowed_users.txt.names`（旁路文件，不影响鉴权）

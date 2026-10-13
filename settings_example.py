@@ -7,6 +7,14 @@ DATABASES = {
         'port': '9030',
         'db_name': ''
     },
+    'DS': {
+        'conn_type': 'mysql',
+        'host': '127.0.0.1',
+        'username': '',
+        'password': '',
+        'port': '3306',
+        'db_name': ''
+    },
     # 任意新增条目都会作为 sqlbot 模块的 db_name：
     # 例: 钉钉发送 "sql 查询 BI select 1"
 }
@@ -29,6 +37,8 @@ DING_APP_SECRET = ''
 HARD_RESET_EXCLUDE_TASKS = []
 # SQL LIKE 模式列表，多条用 AND 连接，例如 ['%ods-cdc%']
 HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS = []
+# 强重置使用的 DATABASES key，必须存在于上面的 DATABASES 中，默认 'etl-config'
+HARD_RESET_DB = 'etl-config'
 
 
 # ---------- SeaTunnel ----------

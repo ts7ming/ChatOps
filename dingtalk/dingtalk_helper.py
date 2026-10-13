@@ -42,17 +42,24 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
         self._cached_mtime = -1.0
         self._cached_users = frozenset()
 
+    # 当白名单文件不存在时，_load_allowed_users 返回这个 sentinel，
+    # 表示"放行所有消息"。文件存在但解析后为空则仍返回空 frozenset（拒绝所有）。
+    _MISSING = object()
+
     def _load_allowed_users(self):
         """
         读取白名单文件，按 mtime 缓存。
-        - 文件不存在或读取失败 → 返回空集合（拒绝所有，安全默认）
-        - 文件存在 → 每行一个 id，跳过空行与以 # 开头的注释行
+
+        返回值:
+            frozenset(...)   文件存在，按行解析出的白名单；空集合表示拒绝所有
+            self._MISSING    文件不存在，放行所有
         """
         try:
             mtime = os.path.getmtime(self.allowed_users_file)
         except OSError:
+            # 文件不存在 → 放行所有
             self._cached_mtime = -1.0
-            self._cached_users = frozenset()
+            self._cached_users = self._MISSING
             return self._cached_users
 
         if mtime == self._cached_mtime:
@@ -84,7 +91,6 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
 
     def _check_permission(self, callback):
         allowed = self._load_allowed_users()
-        has_permission = False
         sender_id = "未知"
         sender_nick = "未知"
 
@@ -98,9 +104,15 @@ class DingtalkHelper(dingtalk_stream.ChatbotHandler):
             sender_id = data.get("senderId") or data.get("senderStaffId") or "未知"
             sender_nick = data.get("senderNick", "未知")
 
-        if sender_id in allowed:
-            has_permission = True
+        # 文件不存在 → 放行所有
+        if allowed is self._MISSING:
+            self.logger.warning(
+                f"用户: {sender_nick}({sender_id}) ---- 已授权 "
+                f"[白名单文件 {self.allowed_users_file} 不存在，放行所有]"
+            )
+            return True
 
+        has_permission = sender_id in allowed
         result = "已授权" if has_permission else "未授权"
         self.logger.warning(
             f"用户: {sender_nick}({sender_id}) ---- {result} "

@@ -1,3 +1,5 @@
+import asyncio
+
 from pyqueen import DataSource
 from settings import (
     DATABASES,
@@ -6,8 +8,14 @@ from settings import (
 )
 from dolphinscheduler.dolphin_base import DolphinBase, TASK_SEARCH_INSTANCE_LIMIT
 
+# 强重置使用的数据库 key（settings.DATABASES 中需存在），未配置则默认 'etl-config'
+try:
+    from settings import HARD_RESET_DB as _HARD_RESET_DB
+except Exception:
+    _HARD_RESET_DB = 'DS'
 
-# DS 任务/工作流状态码 (state 字段) 节选:
+
+# DS 任务/工作流状态码 (state 字段):
 #   0 SUBMITTED, 1 RUNNING, 2 READY_PAUSE, 3 PAUSE, 4 READY_STOP,
 #   5 STOP, 6 FAILURE, 7 SUCCESS, 8 NEED_FAULT_TOLERANCE, 9 KILL
 # scheduler_hard_reset 把"非 6/7"的状态直接 UPDATE 成 6, 绕过 STOP/KILL 流程。
@@ -32,8 +40,15 @@ class DolphinHelper(DolphinBase):
         排除名单由 settings.py 控制:
           - HARD_RESET_EXCLUDE_TASKS           : 任务名不在此列表内才被重置
           - HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS: 工作流名 NOT LIKE 任一模式才被重置
+
+        :return: (task_count, wf_count) 受影响的行数
         """
-        ds = DataSource(**DATABASES['etl-config'])
+        if _HARD_RESET_DB not in DATABASES:
+            raise KeyError(
+                f"settings.DATABASES 中未配置 '{_HARD_RESET_DB}', "
+                f"请在 settings.py 添加该 key 或设置 HARD_RESET_DB = '已存在的key'"
+            )
+        ds = DataSource(**DATABASES[_HARD_RESET_DB])
 
         # 任务表: name NOT IN (...)
         task_exclude = ""
@@ -59,8 +74,32 @@ class DolphinHelper(DolphinBase):
             f"WHERE `state` <> '{_DS_STATE_SUCCESS}' AND `state` <> '{_DS_STATE_FAILURE}'"
             f"{wf_exclude}"
         )
-        ds.exe_sql(sql_task)
-        ds.exe_sql(sql_wf)
+        task_count = ds.exe_sql(sql_task, auto_commit=True)
+        wf_count = ds.exe_sql(sql_wf, auto_commit=True)
+        try:
+            ds.close_conn()
+        except Exception:
+            pass
+        return task_count, wf_count
+
+    async def _hard_reset(self):
+        """
+        异步包装的强重置操作, 避免阻塞事件循环。
+        排除名单在 settings.py 中配置:
+            HARD_RESET_EXCLUDE_TASKS / HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS
+        """
+        try:
+            task_count, wf_count = await asyncio.to_thread(self.scheduler_hard_reset)
+        except KeyError as e:
+            return f"配置错误: {e}"
+        except Exception as e:
+            return f"重置失败: {e}"
+        return (
+            f"重置完成。已将所有非 SUCCESS/FAILURE 状态强制标记为 FAILURE。\n"
+            f"- 任务实例受影响: {task_count}\n"
+            f"- 工作流实例受影响: {wf_count}\n"
+            f"排除名单: HARD_RESET_EXCLUDE_TASKS / HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS"
+        )
 
     async def process(self, cmd):
         """
@@ -78,11 +117,18 @@ class DolphinHelper(DolphinBase):
             [查询, 项目, 工作流]            → 该工作流最近 5 条实例的任务
             [查询, 项目, 工作流, 任务]      → 在最近 5 个实例里定位该任务
             [执行, 项目, 工作流]            → 触发工作流
+            [重置]                          → 紧急强重置
         """
         try:
             if not cmd:
                 return self._help()
             action = cmd[0]
+
+            # ---------- 重置  ----------
+            if action in ('重置', '重置调度', 'hard_reset', 'scheduler_hard_reset'):
+                if len(cmd) > 1:
+                    return "格式错误。重置命令不需要额外参数。\n排除名单请在 settings.py 配置 HARD_RESET_EXCLUDE_TASKS / HARD_RESET_EXCLUDE_WORKFLOW_PATTERNS。"
+                return await self._hard_reset()
 
             # ---------- 查询 ----------
             if action == '查询':
@@ -222,4 +268,5 @@ class DolphinHelper(DolphinBase):
             "支持的指令：\n"
             "1. 查询 [项目名] [工作流名(可选)] [任务名(可选)]\n"
             "2. 执行 [项目名] [工作流名]\n"
+            "3. 重置    (绕过调度器把所有非 SUCCESS/FAILURE 状态强标为 FAILURE)\n"
         )
