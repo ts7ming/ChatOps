@@ -1,0 +1,18 @@
+# 钉钉机器人白名单
+# 使用方法: 复制本文件为 dingtalk_allowed_users.txt 后填写
+#   cp dingtalk_allowed_users.txt.example dingtalk_allowed_users.txt
+#
+# 每行一个 senderId (= staffId)，以 # 开头的行视为注释
+# 修改保存后无需重启，机器人按文件 mtime 自动重载
+#
+# 鉴权规则:
+#   文件不存在       → 放行所有消息 (默认)
+#   文件存在但为空   → 拒绝所有消息
+#   文件存在且有 id  → 仅白名单内的 senderId 可触发
+#
+# 支持的写法 (推荐第一种):
+#   STAFF1234567890                 # 裸 id
+#   STAFF1234567890  # 张三         # 行内注释
+#   张三(STAFF1234567890)           # 括号格式 (旧版兼容)
+STAFF1234567890
+STAFF9876543210

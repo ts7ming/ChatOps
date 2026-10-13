@@ -23,8 +23,9 @@ ChatOps/
 ├── main.py                          # 启动入口，注册钉钉 stream 客户端和 handler_map
 ├── settings_example.py              # 配置模板（复制为 settings.py 后使用）
 ├── test_bot.py
-├── dingtalk_allowed_users.txt       # 钉钉机器人白名单（senderId 每行一个，热加载）
-├── ds_hard_reset_exclude.txt        # ds 重置 执行的 SQL 模板（每行/分号分隔，热加载）
+├── dingtalk_allowed_users.txt.example # 白名单模板（复制为 dingtalk_allowed_users.txt）
+├── ds_hard_reset_exclude.txt.example  # ds 重置 SQL 模板（复制为 ds_hard_reset_exclude.txt）
+├── .gitignore                       # 真实配置 txt 不入库
 ├── dingtalk/
 │   └── dingtalk_helper.py           # 消息入口：解析首词路由到具体模块，按 mtime 读白名单
 ├── dolphinscheduler/
@@ -53,7 +54,11 @@ pip install dingtalk-stream pyqueen aiohttp
 
 ```bash
 cp settings_example.py settings.py
+cp dingtalk_allowed_users.txt.example dingtalk_allowed_users.txt   # 可选，不复制则放行所有人
+cp ds_hard_reset_exclude.txt.example ds_hard_reset_exclude.txt     # 可选，使用 ds 重置 时必须
 ```
+
+真实配置文件（`settings.py` / `dingtalk_allowed_users.txt` / `ds_hard_reset_exclude.txt`）均已加入 `.gitignore`，不会提交到仓库。
 
 按需修改 `settings.py`：
 
@@ -131,7 +136,7 @@ sql 执行 DB1 update t set flag=1 where id=123
 
 `dingtalk/dingtalk_helper.py` 会检查消息发送者的 `senderId`（即 staffId）。
 
-白名单改为 **项目根目录下的 `dingtalk_allowed_users.txt` 文件**（可选），每行一个 `senderId`：
+白名单改为 **项目根目录下的 `dingtalk_allowed_users.txt` 文件**（可选，模板见 `dingtalk_allowed_users.txt.example`），每行一个 `senderId`：
 
 ```
 # 钉钉机器人白名单
@@ -155,7 +160,7 @@ STAFF9876543210  # 李四
 | 文件存在但为空   | 拒绝所有消息                                   |
 | 文件存在且有 id  | 仅白名单内的 `senderId` 可触发                 |
 
-- 修改保存后机器人按文件, 自动重载，**无需重启服务**
+- 修改保存后机器人按文件 mtime 自动重载，**无需重启服务**
 - 工具收集的"id → 昵称"映射存放在同目录的 `dingtalk_allowed_users.txt.names`（旁路文件，不影响鉴权）
 
 获取 `senderId` 的方法见下一节[《收集用户 ID》](#收集用户-id)。

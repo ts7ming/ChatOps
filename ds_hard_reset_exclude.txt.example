@@ -1,0 +1,26 @@
+# ds 重置 SQL 模板
+# 使用方法: 复制本文件为 ds_hard_reset_exclude.txt 后修改
+#   cp ds_hard_reset_exclude.txt.example ds_hard_reset_exclude.txt
+#
+# 修改保存后无需重启, 下次 ds 重置 时自动按 mtime 重载
+#
+# 格式:
+#   - 一行一条完整 SQL, 用 ';' 分号作为结束符 (允许跨行)
+#   - '#' 开头的行为注释, 整行跳过
+#   - 整条 SQL 会原样执行, 切记安全性
+#
+# 提示: DS 任务/工作流 state 字段常用值
+#   0 SUBMITTED, 1 RUNNING, 2 READY_PAUSE, 3 PAUSE, 4 READY_STOP,
+#   5 STOP, 6 FAILURE, 7 SUCCESS, 8 NEED_FAULT_TOLERANCE, 9 KILL
+
+# 1. 任务表: 把非 SUCCESS/FAILURE 的任务标记为 FAILURE
+UPDATE t_ds_task_instance
+SET state = 6
+WHERE state NOT IN (6, 7)
+AND name NOT IN ('关键任务A', '关键任务B');
+
+# 2. 工作流表: 把非 SUCCESS/FAILURE 的工作流标记为 FAILURE
+UPDATE t_ds_workflow_instance
+SET state = 6
+WHERE state NOT IN (6, 7)
+AND name NOT LIKE '%保护%';

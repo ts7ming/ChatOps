@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 *.log
 .env
+
+# 运行时配置文件 (模板见 *.example, 复制后使用)
+dingtalk_allowed_users.txt
+dingtalk_allowed_users.txt.names
+ds_hard_reset_exclude.txt
